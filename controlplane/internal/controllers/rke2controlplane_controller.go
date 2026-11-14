@@ -42,7 +42,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/controllers/clustercache"
@@ -57,6 +56,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 	capikubeconfig "sigs.k8s.io/cluster-api/util/kubeconfig"
 	"sigs.k8s.io/cluster-api/util/patch"
+	"sigs.k8s.io/cluster-api/util/predicates"
 
 	bootstrapv1 "github.com/rancher/cluster-api-provider-rke2/bootstrap/api/v1beta2"
 	controlplanev1 "github.com/rancher/cluster-api-provider-rke2/controlplane/api/v1beta2"
@@ -272,24 +272,22 @@ func (r *RKE2ControlPlaneReconciler) SetupWithManager(
 	ctx context.Context, mgr ctrl.Manager, clientQPS float32,
 	clientBurst, clusterCacheConcurrency, concurrency int,
 ) error {
+	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "rke2controlplane")
+
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&controlplanev1.RKE2ControlPlane{}).
 		Owns(&clusterv1.Machine{}).
+		Watches(
+			&clusterv1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(r.ClusterToRKE2ControlPlane(ctx)),
+		).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: concurrency,
 		}).
+		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), predicateLog, r.WatchFilterValue)).
 		Build(r)
 	if err != nil {
 		return fmt.Errorf("failed setting up with a controller manager: %w", err)
-	}
-
-	err = c.Watch(
-		source.Kind[client.Object](mgr.GetCache(), &clusterv1.Cluster{},
-			handler.EnqueueRequestsFromMapFunc(r.ClusterToRKE2ControlPlane(ctx)),
-		),
-	)
-	if err != nil {
-		return fmt.Errorf("failed adding Watch for Clusters to controller manager: %w", err)
 	}
 
 	r.controller = c
@@ -299,7 +297,8 @@ func (r *RKE2ControlPlaneReconciler) SetupWithManager(
 	// Set up a clusterCache to provide to controllers
 	// requiring a connection to a remote cluster
 	clusterCache, err := clustercache.SetupWithManager(ctx, mgr, clustercache.Options{
-		SecretClient: r.SecretCachingClient,
+		SecretClient:     r.SecretCachingClient,
+		WatchFilterValue: r.WatchFilterValue,
 		Cache: clustercache.CacheOptions{
 			Indexes: []clustercache.CacheOptionsIndex{clustercache.NodeProviderIDIndex},
 		},

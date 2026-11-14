@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
+	"sigs.k8s.io/cluster-api/util/predicates"
 
 	bootstrapv1 "github.com/rancher/cluster-api-provider-rke2/bootstrap/api/v1beta2"
 	"github.com/rancher/cluster-api-provider-rke2/bootstrap/internal/cloudinit"
@@ -74,6 +75,9 @@ type RKE2ConfigReconciler struct {
 
 	RKE2InitLock RKE2InitLock
 	Scheme       *runtime.Scheme
+
+	// WatchFilterValue is the label value used to filter events prior to reconciliation.
+	WatchFilterValue string
 }
 
 const (
@@ -260,16 +264,19 @@ func (r *RKE2ConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *RKE2ConfigReconciler) SetupWithManager(mgr ctrl.Manager, concurrency int) error {
+func (r *RKE2ConfigReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, concurrency int) error {
 	if r.RKE2InitLock == nil {
 		r.RKE2InitLock = locking.NewControlPlaneInitMutex(mgr.GetClient())
 	}
+
+	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "rke2config")
 
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&bootstrapv1.RKE2Config{}).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: concurrency,
 		}).
+		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), predicateLog, r.WatchFilterValue)).
 		Watches(
 			&clusterv1.Machine{},
 			handler.EnqueueRequestsFromMapFunc(r.MachineToBootstrapMapFunc),

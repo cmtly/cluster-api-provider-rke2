@@ -369,7 +369,7 @@ func (r *RKE2ControlPlaneReconciler) cloneConfigsAndGenerateMachine(
 		Namespace:   rcp.Namespace,
 		OwnerRef:    infraCloneOwner,
 		ClusterName: cluster.Name,
-		Labels:      rke2.ControlPlaneLabelsForCluster(cluster.Name),
+		Labels:      ControlPlaneMachineLabelsForCluster(rcp, cluster.Name),
 	})
 	if err != nil {
 		// Safe to return early here since no resources have been created yet.
@@ -434,7 +434,7 @@ func (r *RKE2ControlPlaneReconciler) generateRKE2Config(
 	bootstrapConfig := &bootstrapv1.RKE2Config{
 		Name:            names.SimpleNameGenerator.GenerateName(rcp.Name + "-"),
 		Namespace:       rcp.Namespace,
-		Labels:          rke2.ControlPlaneLabelsForCluster(cluster.Name),
+		Labels:          ControlPlaneMachineLabelsForCluster(rcp, cluster.Name),
 		OwnerReferences: []metav1.OwnerReference{owner},
 		Spec:            *spec,
 	}
